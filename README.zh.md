@@ -1,4 +1,4 @@
-# DeepSeek Harness 会话回收站
+# DeepSeek Harness 会话回收箱
 
 给 DeepSeek Harness 补上「删除」这一半。
 
@@ -30,10 +30,22 @@
 从插件市场安装，或直接从源码安装：
 
 ```sh
-dsh plugin --profile desktop add z664w4zps8-spec/dsh-session-trash
+dsh plugin --profile desktop add z664w4zps8-spec/dsh-session-trash-box
 ```
 
 需要 DSH 0.2.2-alpha.3 或更新版本（它依赖的共享右键菜单服务从该版本开始提供）以及 Node 24+。
+
+## 它和别人不一样在哪
+
+其它会话回收站在你选「彻底删除」时是真的把字节抹掉。这个插件把它们交给**操作系统自己的废纸篓**，文件管理器里仍能还原：
+
+| 平台 | 「彻底删除」会落到哪 |
+| --- | --- |
+| macOS | `~/.Trash` —— Finder 里可以「放回原处」 |
+| Linux | `~/.local/share/Trash` —— freedesktop.org 规范的回收站，带 `.trashinfo` 记录 |
+| Windows | 通过 shell 送进回收站 |
+
+没有可用废纸篓的平台会退回到插件自己的目录，面板会如实说明，而不是假装已经进了系统废纸篓。
 
 ## 它不做什么
 

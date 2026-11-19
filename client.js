@@ -9,7 +9,7 @@
  * deleted session leaves the sidebar without a restart.
  */
 window.__ModuleLoader__.load({
-  id: '@local/dsh-session-trash',
+  id: '@z664w4zps8-spec/dsh-session-trash-box',
   factory(require) {
     const React = require('react')
     const h = React.createElement

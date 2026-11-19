@@ -44,9 +44,15 @@ lists each one with its size and deletion time:
   location and the archive write that hid it is undone, so it reappears in the
   sidebar.
 - **彻底删除 / Delete permanently** hands the session to the operating
-  system's own Trash (`~/.Trash` on macOS), so Finder can still recover it.
+  system's own Trash — `~/.Trash` on macOS, `~/.local/share/Trash` on Linux,
+  the Recycle Bin on Windows — so the file manager can still recover it.
 - **清空回收站 / Empty trash** does the same for every entry at once; it asks
   for a second click to confirm.
+- **批量 / Batch** ticks rows (or selects all) and restores or deletes the
+  selection in one go.
+- **保留期 / Retention** sets how long an entry stays before it expires on its
+  own. `永不` / `Never` turns expiry off. Expired entries move to the system
+  Trash like a permanent delete, so they are still recoverable there.
 - **批量 / Batch** ticks rows (or selects all) and restores or deletes the
   selection in one go.
 - **保留期 / Retention** sets how long an entry stays before it expires on its

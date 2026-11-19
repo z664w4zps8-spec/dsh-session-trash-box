@@ -1,13 +1,13 @@
 {
-  "name": "@z664w4zps8-spec/dsh-session-trash",
+  "name": "@z664w4zps8-spec/dsh-session-trash-box",
   "version": "1.0.0",
-  "description": "Delete a DSH session into a local trash instead of only archiving it: right-click a session to delete it, then restore it, delete it permanently into the system Trash, batch-select entries, or let old entries expire on their own.",
+  "description": "Delete a DSH session into a local trash instead of only archiving it: right-click to delete, then restore, batch, or let old entries expire - and a permanent delete lands in the operating system's own Trash, so the file manager can still recover it.",
   "license": "MIT",
   "author": "z664w4zps8-spec",
-  "homepage": "https://github.com/z664w4zps8-spec/dsh-session-trash#readme",
+  "homepage": "https://github.com/z664w4zps8-spec/dsh-session-trash-box#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/z664w4zps8-spec/dsh-session-trash.git"
+    "url": "git+https://github.com/z664w4zps8-spec/dsh-session-trash-box.git"
   },
   "keywords": [
     "dsh",

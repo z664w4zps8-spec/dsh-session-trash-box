@@ -1,4 +1,4 @@
-# Session trash for DeepSeek Harness
+# Session trash box for DeepSeek Harness
 
 Delete a session into a local trash instead of only archiving it.
 
@@ -41,11 +41,26 @@ DSH.
 From the plugin market, or straight from the sources:
 
 ```sh
-dsh plugin --profile desktop add z664w4zps8-spec/dsh-session-trash
+dsh plugin --profile desktop add z664w4zps8-spec/dsh-session-trash-box
 ```
 
 Requires DSH 0.2.2-alpha.3 or newer (the shared context-menu service it
 contributes to arrived there) and Node 24+.
+
+## What makes it different
+
+Every other session trash destroys the bytes when you choose "delete
+permanently". This one hands them to the operating system's own trash, so the
+file manager can still recover them:
+
+| Platform | Where a permanent delete lands |
+| --- | --- |
+| macOS | `~/.Trash` — "Put Back" in Finder |
+| Linux | `~/.local/share/Trash` — the freedesktop.org Trash, with its `.trashinfo` record |
+| Windows | the Recycle Bin, through the shell |
+
+A platform with no usable trash destination falls back to this plugin's own
+folder, and the panel says so instead of pretending.
 
 ## What it does not do
 

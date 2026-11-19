@@ -369,6 +369,76 @@ async function restore(ctx, id) {
 }
 
 /**
+ * The operating system's own trash, so a permanently deleted session can
+ * still be recovered from the file manager.
+ *
+ * macOS keeps the per-user Trash in `~/.Trash`; Linux follows the
+ * freedesktop.org spec and uses `~/.local/share/Trash`; Windows has no
+ * per-user folder, so its Recycle Bin is reached through the shell. A
+ * platform without a usable destination falls back to this plugin's own
+ * folder, and the caller is told which one it used.
+ * @returns the trash kind and the directory that receives the files.
+ */
+function systemTrashTarget() {
+  if (process.platform === 'darwin') return { kind: 'macos', dir: join(homedir(), '.Trash') }
+  if (process.platform === 'linux') {
+    return { kind: 'linux', dir: join(homedir(), '.local', 'share', 'Trash', 'files') }
+  }
+  if (process.platform === 'win32') return { kind: 'windows', dir: null }
+  return { kind: 'fallback', dir: join(dshHome(), 'session-purge', 'os-trash') }
+}
+
+/**
+ * Hand one directory to the operating system's own trash.
+ *
+ * @param dir - the directory to hand over.
+ * @param name - the name it should carry there.
+ * @returns where it went, and whether the file manager will show it.
+ */
+async function handToSystemTrash(dir, name) {
+  const target = systemTrashTarget()
+  if (target.kind === 'windows') {
+    // Windows has no per-user trash folder to move into; the shell owns the
+    // Recycle Bin, so the move goes through it.
+    const script = `$p = ${JSON.stringify(dir)}; Add-Type -AssemblyName Microsoft.VisualBasic; ` +
+      `[Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p, ` +
+      `'OnlyErrorDialogs', 'SendToRecycleBin')`
+    const { spawn } = await import('node:child_process')
+    const ok = await new Promise((resolve) => {
+      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore' })
+      child.on('error', () => resolve(false))
+      child.on('exit', code => resolve(code === 0))
+    })
+    if (ok) return { kind: 'windows', path: dir, visible: true }
+    // The shell refused it; the files still have to land somewhere.
+    const fallback = join(dshHome(), 'session-purge', 'os-trash')
+    await mkdir(fallback, { recursive: true })
+    await moveDirectory(dir, join(fallback, name))
+    return { kind: 'fallback', path: join(fallback, name), visible: false }
+  }
+
+  await mkdir(target.dir, { recursive: true })
+  let destination = join(target.dir, name)
+  let suffix = 1
+  while (await stat(destination).then(() => true, () => false)) {
+    suffix += 1
+    destination = join(target.dir, `${name} ${suffix}`)
+  }
+  await moveDirectory(dir, destination)
+
+  if (target.kind === 'linux') {
+    // The freedesktop.org spec wants a .trashinfo file beside the payload or
+    // the file manager treats the entry as a plain file it may clean up.
+    const infoDir = join(dirname(target.dir), 'info')
+    await mkdir(infoDir, { recursive: true })
+    const when = new Date().toISOString().replace(/[:]/g, '-')
+    await writeFile(join(infoDir, `${basename(destination)}.trashinfo`),
+      `[Trash Info]\nPath=${destination}\nDeletionDate=${when}\n`, 'utf8')
+  }
+  return { kind: target.kind, path: destination, visible: true }
+}
+
+/**
  * Hand one trashed Session to the operating system's own Trash.
  *
  * A trash entry without a stored directory is an entry whose Session never
@@ -384,23 +454,18 @@ async function deleteEntry(id) {
 
   const hasFiles = await stat(trashDir).then(info => info.isDirectory(), () => false)
   let target = null
+  let visible = false
   if (hasFiles) {
-    const systemTrash = join(homedir(), '.Trash')
-    await mkdir(systemTrash, { recursive: true })
-    const base = typeof record.id === 'string' && record.id !== '' ? record.id : id
-    target = join(systemTrash, base)
-    let suffix = 1
-    while (await stat(target).then(() => true, () => false)) {
-      suffix += 1
-      target = join(systemTrash, `${base} ${suffix}`)
-    }
     // The record travels with the files so the system Trash keeps its history.
     await writeFile(join(trashDir, '.dsh-session-trash.json'), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
-    await moveDirectory(trashDir, target)
+    const base = typeof record.id === 'string' && record.id !== '' ? record.id : id
+    const handed = await handToSystemTrash(trashDir, base)
+    target = handed.path
+    visible = handed.visible
   }
   await rm(recordPath, { force: true })
   await removeSiblingRecords(id, record.id)
-  return { ok: true, trashId: id, path: target, moved: hasFiles, deleted: true }
+  return { ok: true, trashId: id, path: target, moved: hasFiles, visibleInFileManager: visible, deleted: true }
 }
 
 /**

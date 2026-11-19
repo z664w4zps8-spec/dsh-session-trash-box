@@ -39,10 +39,6 @@
     "node": ">=24",
     "dsh": ">=0.2.2-alpha.3 <0.3.0-0"
   },
-  "peerDependencies": {
-    "react": "^18.3.1",
-    "react-dom": "18.3.1"
-  },
   "publishConfig": {
     "access": "public"
   },

@@ -1,0 +1,62 @@
+{
+  "name": "@z664w4zps8-spec/dsh-session-trash",
+  "version": "1.0.0",
+  "description": "Delete a DSH session into a local trash instead of only archiving it: right-click a session to delete it, then restore it, delete it permanently into the system Trash, batch-select entries, or let old entries expire on their own.",
+  "license": "MIT",
+  "author": "z664w4zps8-spec",
+  "homepage": "https://github.com/z664w4zps8-spec/dsh-session-trash#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/z664w4zps8-spec/dsh-session-trash.git"
+  },
+  "keywords": [
+    "dsh",
+    "deepseek-harness",
+    "plugin",
+    "session",
+    "trash",
+    "recycle-bin",
+    "delete"
+  ],
+  "type": "module",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "docs",
+    "icon.svg",
+    "assets"
+  ],
+  "engines": {
+    "node": ">=24",
+    "dsh": ">=0.2.2-alpha.3 <0.3.0-0"
+  },
+  "peerDependencies": {
+    "react": "^18.3.1",
+    "react-dom": "18.3.1"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-context-menu"
+      ]
+    },
+    "manifestVersion": 1
+  }
+}

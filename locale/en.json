@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Session trash",
+    "description": "Right-click a session to delete it into the trash, and open the sidebar's trash list to restore one, delete it permanently into the system Trash, or empty the whole trash.",
+    "detail": "docs/DETAIL.md"
+  }
+}

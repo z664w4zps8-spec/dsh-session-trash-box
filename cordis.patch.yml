@@ -1,0 +1,6 @@
+# Bundle patch for dsh-session-trash.
+# The Client half ships through the package's `dsh.client` section; this row
+# mounts the Host half, which owns the trash routes.
+- insert:
+    - id: session-trash
+      name: '@z664w4zps8-spec/dsh-session-trash'

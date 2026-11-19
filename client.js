@@ -19,6 +19,34 @@ window.__ModuleLoader__.load({
     let t = (key) => key
 
     /**
+     * Report one startup step to the Host, so a silent client failure is
+     * visible outside the browser console.
+     * @param {string} stage - the step that was reached.
+     * @param {object} [extra] - anything worth recording.
+     */
+    function report(stage, extra) {
+      try {
+        void fetch('/api/session-trash/diag', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ stage, ...extra }),
+        }).catch(() => undefined)
+      } catch {
+        // The trace is best effort.
+      }
+    }
+
+    report('module-loaded')
+
+    // Uncaught failures anywhere in this module still reach the Host.
+    window.addEventListener('error', (event) => {
+      report('window-error', { message: String(event?.message ?? '') })
+    })
+    window.addEventListener('unhandledrejection', (event) => {
+      report('unhandled-rejection', { message: String(event?.reason?.message ?? event?.reason ?? '') })
+    })
+
+    /**
      * Minimal observable store shared by the sidebar button and the panel.
      * @param {unknown} initial - the first state.
      * @returns the store handle.
@@ -565,9 +593,11 @@ window.__ModuleLoader__.load({
     }
 
     return {
-      inject: [],
+      inject: ['contextMenus', 'locale', 'slots', 'sessions', 'workspaces'],
       apply(ctx) {
-        ctx.inject(['contextMenus', 'locale', 'slots', 'sessions', 'workspaces'], (child) => {
+        report('apply-called')
+        try {
+          const child = ctx
           const sessions = child.get('sessions')
           const workspaces = child.get('workspaces')
 
@@ -689,7 +719,13 @@ window.__ModuleLoader__.load({
 
           // The count on the sidebar button starts from the Host's own list.
           void refresh()
-        })
+          report('slots-registered')
+        } catch (error) {
+          report('apply-error', {
+            message: String(error?.message ?? error),
+            stack: String(error?.stack ?? '').slice(0, 600),
+          })
+        }
       },
     }
   },

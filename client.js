@@ -29,6 +29,16 @@ window.__ModuleLoader__.load({
     let unarchiveRestored = async () => {}
 
     /**
+     * The sessions whose stored files are gone.
+     *
+     * The Host cannot archive them - its registry resolves a session against
+     * live sessions and persistence, and a dead one is in neither - so this
+     * Client folds them into its own archive set, and the sidebar drops the
+     * rows they would otherwise leave behind.
+     */
+    let deadSessionIds = []
+
+    /**
      * Minimal observable store shared by the sidebar button and the panel.
      * @param {unknown} initial - the first state.
      * @returns the store handle.
@@ -417,6 +427,7 @@ window.__ModuleLoader__.load({
               .map(item => item.id)
             await request('/api/session-trash/batch', { action: 'restore', trashIds: selected })
             await unarchiveRestored(ids)
+            await pruneZombies()
           }),
           style: actionStyle,
         }, h(Glyph, { d: RESTORE_GLYPH, size: 13 }), t('trashBatchRestore')),
@@ -475,6 +486,9 @@ window.__ModuleLoader__.load({
             onClick: () => void run(async () => {
               await request('/api/session-trash/restore', { trashId: item.trashId })
               await unarchiveRestored([item.id])
+              // The restored session has its files back, so it must leave the
+              // dead set again.
+              await pruneZombies()
             }),
             style: actionStyle,
           }, h(Glyph, { d: RESTORE_GLYPH, size: 13 }), t('trashRestore'))
@@ -499,7 +513,7 @@ window.__ModuleLoader__.load({
      * the frame overlay and is positioned from the header's own search button.
      * It disappears when the sidebar is collapsed or the search is expanded.
      */
-    function WorkspaceRefreshButton({ onRefresh }) {
+    function WorkspaceRefreshButton({ onRefresh, onPrune, child }) {
       const state = useStore()
       const [anchor, setAnchor] = useState(null)
 
@@ -561,7 +575,13 @@ window.__ModuleLoader__.load({
           store.set({ refreshing: true })
           Promise.resolve()
             .then(() => onRefresh())
-            .then(() => refresh())
+            .then(() => onPrune())
+            .then((pruned) => {
+              if (pruned > 0) {
+                child.contextMenus.notify(t('refreshPruned').replace('{n}', String(pruned)), true)
+              }
+              return refresh()
+            })
             .catch(() => undefined)
             .then(() => store.set({ refreshing: false }))
         },
@@ -609,11 +629,30 @@ window.__ModuleLoader__.load({
           }
 
           /**
-           * Re-read the Host's archive set into the workspace model.
+           * Install the archive set the sidebar filters by.
            *
-           * The sidebar hides a row by asking the workspace model for the
-           * archived set. A session archived in another window leaves that set
-           * stale here, and the row stays until DSH restarts.
+           * The Host's own set covers every session it archived. A session
+           * whose stored files are gone cannot be archived on the Host - the
+           * registry resolves a session against live sessions and persistence,
+           * and a dead one is in neither - so those ids are folded into this
+           * Client's own set. The sidebar hides a row by asking for the set,
+           * so a row whose files are gone leaves the list either way.
+           * @param {string[]} ids - the Host's archive set.
+           * @returns whether the set was installed.
+           */
+          const installArchiveSet = (ids) => {
+            if (!Array.isArray(ids)) return false
+            const merged = [...new Set([...ids, ...deadSessionIds])]
+            const list = workspaces.list
+            // The workspace model owns the archive set; this is the sink that
+            // replaces it. A Host without that method simply keeps its set.
+            if (typeof list.replaceArchived !== 'function') return false
+            list.replaceArchived(merged)
+            return true
+          }
+
+          /**
+           * Re-read the Host's archive set into the workspace model.
            * @returns nothing.
            */
           const refreshArchiveSet = async () => {
@@ -621,15 +660,41 @@ window.__ModuleLoader__.load({
               const response = await fetch('/api/session-trash/list', { method: 'GET' })
               const payload = await response.json().catch(() => undefined)
               if (!response.ok || payload?.ok !== true) return
-              if (!Array.isArray(payload.archivedSessionIds)) return
-              const list = workspaces.list
-              // The workspace model owns the archive set; this is the sink that
-              // replaces it. A Host without that method simply keeps its set.
-              if (typeof list.replaceArchived === 'function') {
-                list.replaceArchived(payload.archivedSessionIds)
-              }
+              installArchiveSet(payload.archivedSessionIds)
             } catch {
               // The archive set stays as it was.
+            }
+          }
+
+          /**
+           * Take the sessions whose stored files are gone off the list.
+           *
+           * A session deleted from under the Host leaves a row behind: the list
+           * still names it, but there is nothing on disk to open. Only the
+           * Client knows which rows are running or still empty, so it sends the
+           * candidates and the Host checks the files.
+           * @returns the number of pruned sessions.
+           */
+          const pruneZombies = async () => {
+            try {
+              const snapshot = sessions.list.getSnapshot()
+              const items = Array.isArray(snapshot?.items) ? snapshot.items : []
+              const candidates = items
+                .filter(item => typeof item?.sessionId === 'string')
+                .map(item => ({
+                  sessionId: item.sessionId,
+                  running: item.running === true,
+                  blank: item.blank === true,
+                }))
+              if (candidates.length === 0) return 0
+              const payload = await request('/api/session-trash/prune', { candidates })
+              // The dead set is recomputed every time, so a session whose files
+              // come back leaves it again.
+              deadSessionIds = Array.isArray(payload.dead) ? payload.dead : []
+              installArchiveSet(payload.archivedSessionIds)
+              return deadSessionIds.length
+            } catch {
+              return 0
             }
           }
 
@@ -664,6 +729,7 @@ window.__ModuleLoader__.load({
               trashRetention: '保留期',
               trashExpired: '已过期',
               refreshWorkspace: '刷新工作区与会话列表',
+              refreshPruned: '已清理 {n} 个失效会话',
               'retention.never': '永不',
               'retention.days': '{n} 天',
             },
@@ -687,6 +753,7 @@ window.__ModuleLoader__.load({
               trashRetention: 'Retention',
               trashExpired: 'expired',
               refreshWorkspace: 'Refresh the workspace and session list',
+              refreshPruned: 'Cleared {n} stale sessions',
               'retention.never': 'Never',
               'retention.days': '{n} days',
             },
@@ -755,10 +822,13 @@ window.__ModuleLoader__.load({
           child.slots.inject('shell.overlay', () => child.slots.register({
             name: 'shell.overlay',
             id: 'session-trash.refresh',
-          }, () => h(WorkspaceRefreshButton, { onRefresh: refreshSessions })))
+          }, () => h(WorkspaceRefreshButton, { onRefresh: refreshSessions, onPrune: pruneZombies, child })))
 
           // The count on the sidebar button starts from the Host's own list.
           void refresh()
+          // Rows whose files are gone leave the list on their own, without a
+          // click on the refresh button.
+          void pruneZombies()
         } catch (error) {
           }
       },

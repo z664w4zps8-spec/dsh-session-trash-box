@@ -27,6 +27,7 @@ const ROUTES = {
   batch: '/api/session-trash/batch',
   settings: '/api/session-trash/settings',
   sweep: '/api/session-trash/sweep',
+  prune: '/api/session-trash/prune',
 }
 
 /** Only a well-formed Session identity may reach the filesystem. */
@@ -34,6 +35,15 @@ const SESSION_ID = /^session-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 
 /** Only a well-formed trash identity may reach the filesystem. */
 const TRASH_ID = /^t-[0-9TZ]+-[0-9a-f]+$/
+
+/**
+ * A Session identity of any shape the Host mints.
+ *
+ * Sessions are not all named `session-<uuid>`: subagent work carries a
+ * `worker-` or `orchestrator-` prefix, and some identities are a bare uuid.
+ * A name that could escape a path is refused.
+ */
+const ANY_SESSION_ID = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/
 
 /** Default retention: entries older than this many days expire on their own. */
 const DEFAULT_RETENTION_DAYS = 30
@@ -649,6 +659,35 @@ export function apply(ctx) {
   })
 
   route(ctx, ROUTES.sweep, async () => sweep())
+
+  route(ctx, ROUTES.prune, async (input) => {
+    const candidates = Array.isArray(input?.candidates) ? input.candidates : []
+    const dead = []
+    for (const candidate of candidates) {
+      const sessionId = typeof candidate?.sessionId === 'string' ? candidate.sessionId.trim() : ''
+      if (!ANY_SESSION_ID.test(sessionId)) continue
+      // A running session is alive and a blank one has not written yet; both
+      // can be without stored files and are very much worth keeping.
+      if (candidate?.running === true || candidate?.blank === true) continue
+      const snapshot = await ctx.sessionPersistence.stat(sessionId).catch(() => undefined)
+      if (snapshot !== undefined) continue
+      // The files are gone: the session can never be opened again.
+      dead.push(sessionId)
+      // A session the Host still knows - live but not yet persisted - can be
+      // archived outright. One it does not know cannot, and the Client folds
+      // it into its own archive set instead.
+      try {
+        await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+      } catch (error) {
+        ctx.logger?.warn?.('session-trash: archiving %s failed: %s', sessionId, String(error?.message ?? error))
+      }
+    }
+    return {
+      ok: true,
+      dead,
+      archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds],
+    }
+  })
 
   // A periodic sweep keeps the retention window honest even when nobody
   // opens the panel; the interval ends with the plugin's own lifetime.

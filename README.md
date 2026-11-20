@@ -33,8 +33,22 @@ deletion time, and offers:
 | **Retention** / 保留期 | Entries older than the chosen window expire on their own and move to the system Trash. `Never` turns expiry off. |
 
 A **refresh button** sits beside the workspace search control. It re-pulls the
-session list, so a session that changed on disk shows up without restarting
-DSH.
+session list, re-reads the Host's archive set, and clears every row whose
+session files are gone — so a session deleted from under DSH leaves the
+sidebar without a restart.
+
+## How a deleted session leaves the sidebar
+
+The sidebar hides a session by asking the workspace model for the archive set.
+That set is the one piece of workspace state a client does **not** receive by
+push: it arrives in the reply of the Host's own archive command.
+
+So the plugin asks the Host to archive through that command, before it moves
+any files, and the reply's archive set is what takes the row off the list. A
+session whose files are gone cannot be archived at all — the Host's registry
+resolves a session against live sessions and persistence, and a dead one is in
+neither — so the plugin folds those ids into the client's own archive set
+instead. The row leaves the list either way.
 
 ## Install
 

@@ -13,10 +13,10 @@ that re-pulls the session list.
 ## Deleting a session
 
 1. Right-click a session in the workspace sidebar and choose the trash action.
-2. The Host archives the session with the same durable write the built-in
-   **归档** action performs, so the session leaves the sidebar and any running
-   work is stopped. The Client then refreshes its own session list, so the row
-   disappears immediately.
+2. The Client asks the Host to archive the session through the Host's own
+   archive command, so the session leaves the sidebar and any running work is
+   stopped. That command answers with the complete archive set, which is what
+   takes the row off the list.
 3. The Host then moves the session's stored directory out of the session store
    and into the trash:
 
@@ -67,9 +67,41 @@ Only sessions deleted through this plugin's action are collected. The built-in
 
 ## Refreshing the list
 
-The refresh button beside the workspace search control re-pulls the session
-list from the Host. A session whose files changed on disk — or one removed by
-another tool — shows up without restarting DSH.
+The refresh button beside the workspace search control does three things:
+
+1. **Re-pulls the session list** from the Host.
+2. **Re-reads the Host's archive set.** The archive set is the one piece of
+   workspace state a Client does not receive by push: it arrives in the reply
+   of the Host's own archive command. A session archived in another window
+   therefore leaves the list only once the Client re-reads that set.
+3. **Drops the rows whose files are gone.** The Client sends the sessions it is
+   showing — it alone knows which are running and which are still empty — and
+   the Host checks each one's stored files.
+
+### Why a deleted session leaves the list
+
+The sidebar hides a session by asking the workspace model for the archive set.
+Writing that set on the Host behind the Host's own command's back leaves the
+sidebar showing a row the Host has already archived, and no refresh can clear
+it.
+
+So the Client asks the Host to archive through `workspaces.archiveSession`
+*before* the files move. That command answers with the complete archive set,
+and the Client installs it. A restored session comes back the same way, through
+`workspaces.unarchiveSession`.
+
+### Why a dead session is handled on the Client
+
+A session whose stored files are gone cannot be archived at all: the Host's
+registry resolves a session against live sessions and persistence, and a dead
+one is in neither — the archive command answers `session/not-found`. The Host
+reports such a session as *dead* instead, and the Client folds those ids into
+its own archive set. The sidebar drops the row either way, and the set is
+recomputed on every refresh, so a session whose files come back leaves the dead
+set again.
+
+Running and blank sessions are never touched: a session that is still writing,
+or that has not written yet, has no stored files and is very much alive.
 
 ## Limitations
 
@@ -78,8 +110,11 @@ another tool — shows up without restarting DSH.
   directory does not rewrite the session index; a session that is opened again
   after being restored starts from an empty log until the backend materializes
   it again.
-- Only the session's own storage directory is moved. Workspace membership,
-  the archived set, and any deliverables produced by the session are untouched.
+- Only the session's own storage directory is moved. Workspace membership and
+  any deliverables produced by the session are untouched.
+- The archive set is not rewritten by this plugin: a dead session is hidden by
+  the Client's own set, so it leaves the list without the Host learning about
+  it. The Host's set is left exactly as it was.
 - A session can only be restored while its stored directory still exists; an
   entry whose files were removed elsewhere is listed but cannot be restored.
 - The retention window is enforced when the trash is listed and by an hourly

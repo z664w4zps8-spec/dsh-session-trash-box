@@ -309,11 +309,6 @@ async function purge(ctx, sessionId, title) {
     moved = true
   }
 
-  // Archive the Session: the durable archive set hides it from the sidebar and
-  // blocks every later wake. An already archived Session resolves without
-  // writing, which is why the Client also refreshes its own list afterwards.
-  await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
-
   const record = {
     schema: 1,
     trashId: id,
@@ -329,7 +324,19 @@ async function purge(ctx, sessionId, title) {
     status: 'trashed',
     trashedBy: 'dsh-session-trash',
   }
+  // The record is written before the archive: an archive that fails must not
+  // leave moved files without a record that points back at them.
   await writeFile(join(root, `${id}.json`), `${JSON.stringify(record, null, 2)}\n`, 'utf8')
+
+  // Archive the session: the durable archive set hides it from the sidebar and
+  // blocks every later wake. The Client asks the Host to archive through the
+  // Host's own command first, so this is the fallback for a caller that
+  // reaches the route on its own.
+  try {
+    await ctx.workspaceRegistry.archiveSession(sessionId, { stopActivity: true })
+  } catch (error) {
+    ctx.logger?.warn?.('session-trash: archiving %s failed: %s', sessionId, String(error?.message ?? error))
+  }
 
   return { ok: true, trashId: id, path: trashDir, sizeBytes, moved, archived: true }
 }
@@ -363,7 +370,14 @@ async function restore(ctx, id) {
   await removeSiblingRecords(id, record.id)
   if (typeof record.id === 'string') {
     // The archive write that hid the Session is undone by the same registry.
-    await ctx.workspaceRegistry.unarchiveSession(record.id).catch(() => undefined)
+    // The Client asks the Host to unarchive through the Host's own command so
+    // that the reply carries the new archive set; this is the fallback for a
+    // caller that reaches the route on its own.
+    try {
+      await ctx.workspaceRegistry.unarchiveSession(record.id)
+    } catch (error) {
+      ctx.logger?.warn?.('session-trash: unarchiving %s failed: %s', record.id, String(error?.message ?? error))
+    }
   }
   return { ok: true, trashId: id, id: record.id, restored: true }
 }
@@ -592,6 +606,10 @@ export function apply(ctx) {
         items: records.map(record => recordView(record, settings.retentionDays)),
         retentionDays: settings.retentionDays,
         retentionChoices: RETENTION_CHOICES,
+        // The Host owns the archive set. A Client that reads it here can drop
+        // rows the sidebar still shows after the session was archived
+        // elsewhere.
+        archivedSessionIds: [...ctx.workspaceRegistry.archivedSessionIds],
       })
     },
   }), `session-trash: ${ROUTES.list}`)

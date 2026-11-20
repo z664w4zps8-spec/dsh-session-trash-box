@@ -19,6 +19,16 @@ window.__ModuleLoader__.load({
     let t = (key) => key
 
     /**
+     * Bring restored sessions back into the sidebar.
+     *
+     * The archive set lives on the Host, and a Client only learns it from the
+     * reply of the Host's own unarchive command. Unarchiving behind the
+     * command's back leaves the row hidden.
+     * @param {string[]} sessionIds - the restored sessions.
+     */
+    let unarchiveRestored = async () => {}
+
+    /**
      * Minimal observable store shared by the sidebar button and the panel.
      * @param {unknown} initial - the first state.
      * @returns the store handle.
@@ -401,7 +411,13 @@ window.__ModuleLoader__.load({
         h('span', { style: { flex: 1, fontSize: 12 } }, t('trashSelected').replace('{n}', String(selected.length))),
         h('button', {
           type: 'button',
-          onClick: () => void run(() => request('/api/session-trash/batch', { action: 'restore', trashIds: selected })),
+          onClick: () => void run(async () => {
+            const ids = store.get().items
+              .filter(item => selected.includes(item.trashId))
+              .map(item => item.id)
+            await request('/api/session-trash/batch', { action: 'restore', trashIds: selected })
+            await unarchiveRestored(ids)
+          }),
           style: actionStyle,
         }, h(Glyph, { d: RESTORE_GLYPH, size: 13 }), t('trashBatchRestore')),
         h('button', {
@@ -456,7 +472,10 @@ window.__ModuleLoader__.load({
           ? h('button', {
             type: 'button',
             title: t('trashRestore'),
-            onClick: () => void run(() => request('/api/session-trash/restore', { trashId: item.trashId })),
+            onClick: () => void run(async () => {
+              await request('/api/session-trash/restore', { trashId: item.trashId })
+              await unarchiveRestored([item.id])
+            }),
             style: actionStyle,
           }, h(Glyph, { d: RESTORE_GLYPH, size: 13 }), t('trashRestore'))
           : null,
@@ -576,6 +595,44 @@ window.__ModuleLoader__.load({
           const sessions = child.get('sessions')
           const workspaces = child.get('workspaces')
 
+          // Restored sessions come back through the Host's own unarchive
+          // command, whose reply carries the new archive set.
+          unarchiveRestored = async (sessionIds) => {
+            for (const sessionId of sessionIds ?? []) {
+              if (typeof sessionId !== 'string' || sessionId === '') continue
+              try {
+                await workspaces.unarchiveSession(sessionId)
+              } catch {
+                // The session was not archived; its files are back either way.
+              }
+            }
+          }
+
+          /**
+           * Re-read the Host's archive set into the workspace model.
+           *
+           * The sidebar hides a row by asking the workspace model for the
+           * archived set. A session archived in another window leaves that set
+           * stale here, and the row stays until DSH restarts.
+           * @returns nothing.
+           */
+          const refreshArchiveSet = async () => {
+            try {
+              const response = await fetch('/api/session-trash/list', { method: 'GET' })
+              const payload = await response.json().catch(() => undefined)
+              if (!response.ok || payload?.ok !== true) return
+              if (!Array.isArray(payload.archivedSessionIds)) return
+              const list = workspaces.list
+              // The workspace model owns the archive set; this is the sink that
+              // replaces it. A Host without that method simply keeps its set.
+              if (typeof list.replaceArchived === 'function') {
+                list.replaceArchived(payload.archivedSessionIds)
+              }
+            } catch {
+              // The archive set stays as it was.
+            }
+          }
+
           // The refresh button and the delete action share one Host list pull.
           const refreshSessions = async () => {
             try {
@@ -583,6 +640,7 @@ window.__ModuleLoader__.load({
             } catch {
               // The list may still be stale until the next pull.
             }
+            await refreshArchiveSet()
           }
 
           child.effect(() => child.locale.register('sessionTrash', {
@@ -660,13 +718,20 @@ window.__ModuleLoader__.load({
                 danger: true,
                 failureLabel: translate('trashFailed'),
                 run: async () => {
+                  // Hide the session through the Host's own archive command.
+                  // That command answers with the complete archive set, which is
+                  // the only way this client learns that the row belongs in the
+                  // trash rather than in the sidebar. Writing the registry
+                  // behind the Host's back leaves the sidebar stale.
+                  await workspaces.archiveSession(target.sessionId, { stopActivity: true })
+                  // Now that the session is hidden, its stored directory can
+                  // move into the trash.
                   const result = await request('/api/session-trash/purge', {
                     sessionId: target.sessionId,
                     title: target.displayTitle,
                   })
-                  // The Host archives the session; the Client's own list still
-                  // holds the old row until it is refreshed. A refresh that
-                  // fails must not hide the delete that already happened.
+                  // A refresh that fails must not hide the delete that already
+                  // happened.
                   await refreshSessions()
                   await refresh()
                   child.contextMenus.notify(translate('trashDone'), true)

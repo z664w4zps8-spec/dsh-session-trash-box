@@ -9,7 +9,7 @@
  * every remaining entry to the operating system's own Trash, and expire old
  * entries on its own.
  */
-import { appendFile, cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { randomBytes } from 'node:crypto'
 import { homedir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
@@ -27,7 +27,6 @@ const ROUTES = {
   batch: '/api/session-trash/batch',
   settings: '/api/session-trash/settings',
   sweep: '/api/session-trash/sweep',
-  diag: '/api/session-trash/diag',
 }
 
 /** Only a well-formed Session identity may reach the filesystem. */
@@ -632,22 +631,6 @@ export function apply(ctx) {
   })
 
   route(ctx, ROUTES.sweep, async () => sweep())
-
-  // A temporary trace channel: the browser half reports which step of its
-  // own startup it reached, so a silent client failure is visible here.
-  route(ctx, ROUTES.diag, async (input) => {
-    const log = join(dshHome(), 'session-purge', 'diag.log')
-    const line = `${new Date().toISOString()} ${JSON.stringify(input)}\n`
-    await mkdir(dirname(log), { recursive: true })
-    await appendFile(log, line, 'utf8')
-    let history = ''
-    try {
-      history = await readFile(log, 'utf8')
-    } catch {
-      history = ''
-    }
-    return { ok: true, history: history.slice(-4000) }
-  })
 
   // A periodic sweep keeps the retention window honest even when nobody
   // opens the panel; the interval ends with the plugin's own lifetime.

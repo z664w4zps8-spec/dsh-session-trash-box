@@ -19,34 +19,6 @@ window.__ModuleLoader__.load({
     let t = (key) => key
 
     /**
-     * Report one startup step to the Host, so a silent client failure is
-     * visible outside the browser console.
-     * @param {string} stage - the step that was reached.
-     * @param {object} [extra] - anything worth recording.
-     */
-    function report(stage, extra) {
-      try {
-        void fetch('/api/session-trash/diag', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ stage, ...extra }),
-        }).catch(() => undefined)
-      } catch {
-        // The trace is best effort.
-      }
-    }
-
-    report('module-loaded')
-
-    // Uncaught failures anywhere in this module still reach the Host.
-    window.addEventListener('error', (event) => {
-      report('window-error', { message: String(event?.message ?? '') })
-    })
-    window.addEventListener('unhandledrejection', (event) => {
-      report('unhandled-rejection', { message: String(event?.reason?.message ?? event?.reason ?? '') })
-    })
-
-    /**
      * Minimal observable store shared by the sidebar button and the panel.
      * @param {unknown} initial - the first state.
      * @returns the store handle.
@@ -57,7 +29,11 @@ window.__ModuleLoader__.load({
       return {
         get: () => state,
         set: (patch) => {
-          state = typeof patch === 'function' ? patch(state) : { ...state, ...patch }
+          // Every write merges. A function patch computes the fields it
+          // knows about; merging keeps the rest, so a background refresh
+          // cannot wipe the panel's open flag.
+          const next = typeof patch === 'function' ? patch(state) : patch
+          state = { ...state, ...next }
           for (const listener of [...listeners]) listener()
         },
         subscribe: (listener) => {
@@ -113,8 +89,7 @@ window.__ModuleLoader__.load({
           // A selection only survives while its entry does.
           selected: state.selected.filter(id => live.has(id)),
           error: '',
-        }))
-      } catch (error) {
+        }))      } catch (error) {
         store.set({ error: String(error?.message ?? error) })
       }
     }
@@ -320,6 +295,7 @@ window.__ModuleLoader__.load({
 
       return h('div', {
         ref: panel,
+        'data-session-trash-panel': 'true',
         style: {
           position: 'fixed',
           left: 12,
@@ -595,7 +571,6 @@ window.__ModuleLoader__.load({
     return {
       inject: ['contextMenus', 'locale', 'slots', 'sessions', 'workspaces'],
       apply(ctx) {
-        report('apply-called')
         try {
           const child = ctx
           const sessions = child.get('sessions')
@@ -719,13 +694,8 @@ window.__ModuleLoader__.load({
 
           // The count on the sidebar button starts from the Host's own list.
           void refresh()
-          report('slots-registered')
         } catch (error) {
-          report('apply-error', {
-            message: String(error?.message ?? error),
-            stack: String(error?.stack ?? '').slice(0, 600),
-          })
-        }
+          }
       },
     }
   },
